@@ -40,111 +40,14 @@ class VolumeOverlayService : Service() {
         hideOverlay()
     }
 
-    private var mediaSession: android.media.session.MediaSession? = null
-    private var volumeProvider: android.media.VolumeProvider? = null
-
     override fun onCreate() {
         super.onCreate()
         audioGainManager = AudioGainManager(this)
         startForegroundServiceNotification()
         startSilentAudioSession()
-        initMediaSessionVolumeProvider()
     }
 
-    private fun initMediaSessionVolumeProvider() {
-        try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-                volumeProvider = object : android.media.VolumeProvider(
-                    VOLUME_CONTROL_RELATIVE,
-                    audioGainManager.maxSteps,
-                    audioGainManager.currentStep
-                ) {
-                    override fun onAdjustVolume(direction: Int) {
-                        val stepsToChange = kotlin.math.abs(direction)
-                        var lastStep = audioGainManager.currentStep
-                        if (direction > 0) {
-                            repeat(stepsToChange) {
-                                lastStep = audioGainManager.stepUp()
-                            }
-                            notifyOverlayIfUnlocked(lastStep)
-                        } else if (direction < 0) {
-                            repeat(stepsToChange) {
-                                lastStep = audioGainManager.stepDown()
-                            }
-                            notifyOverlayIfUnlocked(lastStep)
-                        }
-                    }
 
-                    override fun onSetVolumeTo(volume: Int) {
-                        audioGainManager.currentStep = volume
-                    }
-                }
-
-                mediaSession = android.media.session.MediaSession(this, "FineVolumeSession").apply {
-                    val state = android.media.session.PlaybackState.Builder()
-                        .setActions(android.media.session.PlaybackState.ACTION_PLAY or
-                                android.media.session.PlaybackState.ACTION_PAUSE or
-                                android.media.session.PlaybackState.ACTION_PLAY_PAUSE or
-                                android.media.session.PlaybackState.ACTION_SKIP_TO_NEXT or
-                                android.media.session.PlaybackState.ACTION_SKIP_TO_PREVIOUS)
-                        .setState(android.media.session.PlaybackState.STATE_PLAYING, 0, 1.0f)
-                        .build()
-                    setPlaybackState(state)
-
-                    setCallback(object : android.media.session.MediaSession.Callback() {
-                        override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
-                            val keyEvent = mediaButtonIntent.getParcelableExtra<android.view.KeyEvent>(Intent.EXTRA_KEY_EVENT)
-                            if (keyEvent != null && keyEvent.keyCode != android.view.KeyEvent.KEYCODE_VOLUME_UP && keyEvent.keyCode != android.view.KeyEvent.KEYCODE_VOLUME_DOWN) {
-                                // Disable our session temporarily
-                                isActive = false
-                                // Dispatch the event to the system (which will route it to Spotify/YouTube)
-                                val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-                                audioManager.dispatchMediaKeyEvent(keyEvent)
-                                // Re-enable our session
-                                isActive = true
-                                return true
-                            }
-                            return super.onMediaButtonEvent(mediaButtonIntent)
-                        }
-
-                        // Also override direct actions just in case
-                        override fun onPlay() { forwardKeyEvent(android.view.KeyEvent.KEYCODE_MEDIA_PLAY) }
-                        override fun onPause() { forwardKeyEvent(android.view.KeyEvent.KEYCODE_MEDIA_PAUSE) }
-                        override fun onSkipToNext() { forwardKeyEvent(android.view.KeyEvent.KEYCODE_MEDIA_NEXT) }
-                        override fun onSkipToPrevious() { forwardKeyEvent(android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS) }
-
-                        private fun forwardKeyEvent(keyCode: Int) {
-                            isActive = false
-                            val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-                            val downEvent = android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyCode)
-                            val upEvent = android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, keyCode)
-                            audioManager.dispatchMediaKeyEvent(downEvent)
-                            audioManager.dispatchMediaKeyEvent(upEvent)
-                            isActive = true
-                        }
-                    })
-
-                    volumeProvider?.let { setPlaybackToRemote(it) }
-                    isActive = true
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun notifyOverlayIfUnlocked(currentStep: Int) {
-        val powerManager = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
-        val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
-        val isLockedOrOff = (powerManager != null && !powerManager.isInteractive) ||
-                (keyguardManager != null && keyguardManager.isKeyguardLocked)
-
-        if (!isLockedOrOff) {
-            handler.post {
-                showOrUpdateOverlay(currentStep, audioGainManager.maxSteps)
-            }
-        }
-    }
 
     private fun startSilentAudioSession() {
         try {
@@ -342,13 +245,6 @@ class VolumeOverlayService : Service() {
             audioTrack?.stop()
             audioTrack?.release()
             audioTrack = null
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        try {
-            mediaSession?.isActive = false
-            mediaSession?.release()
-            mediaSession = null
         } catch (e: Exception) {
             e.printStackTrace()
         }

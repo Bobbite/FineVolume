@@ -58,7 +58,26 @@ class AudioGainManager(private val context: Context) {
     private val volumeChangeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val action = intent?.action ?: return
-            if (action == Intent.ACTION_USER_PRESENT || action == Intent.ACTION_SCREEN_ON) {
+            if (action == "android.media.VOLUME_CHANGED_ACTION") {
+                val powerManager = context?.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                val keyguardManager = context?.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+
+                val isDeviceLockedOrOff = (powerManager != null && !powerManager.isInteractive) ||
+                        (keyguardManager != null && keyguardManager.isKeyguardLocked)
+
+                if (isDeviceLockedOrOff) {
+                    val streamType = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", -1)
+                    if (streamType == AudioManager.STREAM_MUSIC) {
+                        val newVol = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_VALUE", -1)
+                        val maxSys = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                        if (newVol >= 0 && maxSys > 0) {
+                            val ratio = newVol.toFloat() / maxSys.toFloat()
+                            val mappedStep = (ratio * maxSteps).roundToInt().coerceIn(0, maxSteps)
+                            setCurrentStepInternal(mappedStep, applyToSystem = false)
+                        }
+                    }
+                }
+            } else if (action == Intent.ACTION_USER_PRESENT || action == Intent.ACTION_SCREEN_ON) {
                 // Re-apply digital gain smoothly upon unlock without modifying currentStep
                 applyStepGain(currentStep)
             } else if (action == Intent.ACTION_HEADSET_PLUG ||
