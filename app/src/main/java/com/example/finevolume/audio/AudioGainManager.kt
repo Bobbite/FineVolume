@@ -64,7 +64,7 @@ class AudioGainManager(private val context: Context) {
                 val isDeviceLockedOrOff = (powerManager != null && !powerManager.isInteractive) ||
                         (keyguardManager != null && keyguardManager.isKeyguardLocked)
 
-                // Only handle VOLUME_CHANGED_ACTION when screen is locked or off
+                // Only process VOLUME_CHANGED_ACTION when screen is locked or off
                 if (!isDeviceLockedOrOff) {
                     return
                 }
@@ -87,8 +87,11 @@ class AudioGainManager(private val context: Context) {
                     }
                 }
             } else if (action == Intent.ACTION_USER_PRESENT || action == Intent.ACTION_SCREEN_ON) {
-                // User unlocked screen -> sync gain smoothly
-                applyStepGain(currentStep)
+                // Seamlessly sync currentStep to native system volume upon unlock
+                val sysVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                val maxSys = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                val syncedStep = ((sysVol.toFloat() / maxSys) * maxSteps).roundToInt().coerceIn(0, maxSteps)
+                setCurrentStepInternal(syncedStep, applyToSystem = false)
             } else if (action == Intent.ACTION_HEADSET_PLUG ||
                 action == AudioManager.ACTION_AUDIO_BECOMING_NOISY ||
                 action == "android.bluetooth.device.action.ACL_CONNECTED" ||
@@ -155,7 +158,6 @@ class AudioGainManager(private val context: Context) {
     }
 
     fun getActiveDeviceKey(): String {
-        // While locked, preserve last known valid device key to prevent fallback to BUILTIN_SPEAKER
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
         val isLocked = (powerManager != null && !powerManager.isInteractive) ||

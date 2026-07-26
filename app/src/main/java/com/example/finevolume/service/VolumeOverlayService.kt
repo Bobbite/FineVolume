@@ -1,6 +1,5 @@
 package com.example.finevolume.service
 
-import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,17 +7,11 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
-import android.media.AudioAttributes
-import android.media.AudioFormat
 import android.media.AudioManager
-import android.media.AudioTrack
-import android.media.VolumeProvider
-import android.media.session.MediaSession
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.os.PowerManager
 import android.provider.Settings
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -40,10 +33,6 @@ class VolumeOverlayService : Service() {
     private var textStepCount: TextView? = null
 
     private lateinit var audioGainManager: AudioGainManager
-    private var mediaSession: MediaSession? = null
-    private var volumeProvider: VolumeProvider? = null
-    private var audioTrack: AudioTrack? = null
-
     private val handler = Handler(Looper.getMainLooper())
 
     private val hideRunnable = Runnable {
@@ -54,92 +43,6 @@ class VolumeOverlayService : Service() {
         super.onCreate()
         audioGainManager = AudioGainManager(this)
         startForegroundServiceNotification()
-        initMediaSessionVolumeProvider()
-        startSilentAudioSession()
-    }
-
-    private fun startSilentAudioSession() {
-        try {
-            val sampleRate = 44100
-            val minBufferSize = AudioTrack.getMinBufferSize(
-                sampleRate,
-                AudioFormat.CHANNEL_OUT_MONO,
-                AudioFormat.ENCODING_PCM_16BIT
-            )
-            if (minBufferSize > 0) {
-                audioTrack = AudioTrack.Builder()
-                    .setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                            .build()
-                    )
-                    .setAudioFormat(
-                        AudioFormat.Builder()
-                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                            .setSampleRate(sampleRate)
-                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                            .build()
-                    )
-                    .setBufferSizeInBytes(minBufferSize)
-                    .setTransferMode(AudioTrack.MODE_STATIC)
-                    .build()
-
-                val silentBuffer = ByteArray(minBufferSize)
-                audioTrack?.write(silentBuffer, 0, silentBuffer.size)
-                audioTrack?.setLoopPoints(0, silentBuffer.size / 2, -1)
-                audioTrack?.play()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun initMediaSessionVolumeProvider() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                volumeProvider = object : VolumeProvider(
-                    VOLUME_CONTROL_RELATIVE,
-                    audioGainManager.maxSteps,
-                    audioGainManager.currentStep
-                ) {
-                    override fun onAdjustVolume(direction: Int) {
-                        if (direction > 0) {
-                            val newStep = audioGainManager.stepUp()
-                            notifyOverlayIfUnlocked(newStep)
-                        } else if (direction < 0) {
-                            val newStep = audioGainManager.stepDown()
-                            notifyOverlayIfUnlocked(newStep)
-                        }
-                    }
-
-                    override fun onSetVolumeTo(volume: Int) {
-                        audioGainManager.currentStep = volume
-                    }
-                }
-
-                val provider = volumeProvider ?: return
-                mediaSession = MediaSession(this, "FineVolumeSession").apply {
-                    setPlaybackToRemote(provider)
-                    isActive = true
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun notifyOverlayIfUnlocked(currentStep: Int) {
-        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-        val isLockedOrOff = (powerManager != null && !powerManager.isInteractive) ||
-                (keyguardManager != null && keyguardManager.isKeyguardLocked)
-
-        if (!isLockedOrOff) {
-            handler.post {
-                showOrUpdateOverlay(currentStep, audioGainManager.maxSteps)
-            }
-        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -297,20 +200,6 @@ class VolumeOverlayService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         hideOverlay()
-        try {
-            audioTrack?.stop()
-            audioTrack?.release()
-            audioTrack = null
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        try {
-            mediaSession?.isActive = false
-            mediaSession?.release()
-            mediaSession = null
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
         audioGainManager.release()
     }
 
