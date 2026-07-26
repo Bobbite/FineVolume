@@ -84,9 +84,9 @@ class AudioGainManager(private val context: Context) {
                         }
 
                         if (newVol > prevVol) {
-                            stepUp()
+                            stepUp(updateSystemVolume = false)
                         } else if (newVol < prevVol) {
-                            stepDown()
+                            stepDown(updateSystemVolume = false)
                         }
                     }
                 }
@@ -295,42 +295,70 @@ class AudioGainManager(private val context: Context) {
     }
 
     fun applyStepGain(step: Int, updateSystemVolume: Boolean = true) {
-        val fraction = getGainFraction(step)
+        val targetFraction = getGainFraction(step)
         val maxSystemVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        val targetSystemIndex = (fraction * maxSystemVol).roundToInt().coerceIn(0, maxSystemVol)
+        
+        var currentSystemVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        
+        if (updateSystemVolume) {
+            // When updating system volume natively (unlocked/headset switch), 
+            // force native volume to max to prevent OS volume drop-offs 
+            // and do all attenuation purely via DSP LoudnessEnhancer.
+            currentSystemVol = maxSystemVol
+        }
+
+        // Native Volume Fraction (what the hardware is currently set to)
+        val nativeFraction = currentSystemVol.toFloat() / maxSystemVol.toFloat()
+        
+        // Desired Acoustic Energy vs Current Hardware Energy
+        // If target is 0.5 and native is 0.6, we need LoudnessEnhancer to be 0.5/0.6 = 0.83 (-1.6dB).
+        var requiredLeFraction = if (nativeFraction > 0.01f) {
+            targetFraction / nativeFraction
+        } else {
+            0.0f
+        }
+
+        // Clamp requiredLeFraction to 1.0 (0 dB) to avoid positive gain distortion.
+        requiredLeFraction = requiredLeFraction.coerceIn(0.0f, 1.0f)
+        
+        // Convert multiplier to millibels: mB = 2000 * log10(fraction)
+        val targetMb = if (requiredLeFraction > 0.001f) {
+            (2000.0 * kotlin.math.log10(requiredLeFraction.toDouble())).toInt().coerceIn(-10000, 0)
+        } else {
+            -10000 // effectively mute
+        }
 
         try {
-            if (updateSystemVolume) {
-                expectedSystemVolumeIndex = targetSystemIndex
-                lastSelfAppliedTime = System.currentTimeMillis()
-                audioManager.setStreamVolume(
-                    AudioManager.STREAM_MUSIC,
-                    targetSystemIndex,
-                    0
-                )
-            }
-
             loudnessEnhancer?.let { enhancer ->
-                val targetMb = ((fraction - 0.5f) * 1200).toInt().coerceIn(-1500, 1500)
                 enhancer.setTargetGain(targetMb)
                 if (!enhancer.enabled) {
                     enhancer.enabled = true
                 }
+            }
+
+            if (updateSystemVolume && audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) != maxSystemVol) {
+                expectedSystemVolumeIndex = maxSystemVol
+                lastSelfAppliedTime = System.currentTimeMillis()
+                audioManager.setStreamVolume(
+                    AudioManager.STREAM_MUSIC,
+                    maxSystemVol,
+                    0
+                )
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error applying audio gain: ${e.message}")
         }
     }
 
-    fun stepUp(): Int {
+    fun stepUp(updateSystemVolume: Boolean = true): Int {
         val next = (currentStep + 1).coerceAtMost(maxSteps)
-        currentStep = next
+        setCurrentStepInternal(next, applyToSystem = updateSystemVolume)
         return next
     }
 
-    fun stepDown(): Int {
+    fun stepDown(updateSystemVolume: Boolean = true): Int {
         val prev = (currentStep - 1).coerceAtLeast(0)
-        currentStep = prev
+        setCurrentStepInternal(prev, applyToSystem = updateSystemVolume)
         return prev
     }
 
