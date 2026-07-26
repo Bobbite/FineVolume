@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import com.example.finevolume.audio.AudioGainManager
 import com.example.finevolume.audio.CurveMode
 import com.example.finevolume.service.VolumeAccessibilityService
+import com.example.finevolume.service.VolumeOverlayService
 
 class MainActivity : ComponentActivity() {
 
@@ -41,7 +42,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        audioGainManager = AudioGainManager(this)
+        audioGainManager = AudioGainManager.getInstance(this)
 
         setContent {
             FineVolumeTheme {
@@ -80,7 +81,10 @@ fun FineVolumeScreen(audioGainManager: AudioGainManager) {
     var currentStep by remember { mutableStateOf(audioGainManager.currentStep) }
     var selectedCurve by remember { mutableStateOf(audioGainManager.curveMode) }
     var perDeviceMemory by remember { mutableStateOf(audioGainManager.perDeviceMemoryEnabled) }
-    
+    var lockscreenFineControl by remember {
+        mutableStateOf(audioGainManager.lockscreenFineControlEnabled)
+    }
+
     var isAccessibilityEnabled by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
     var canDrawOverlays by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
 
@@ -91,6 +95,7 @@ fun FineVolumeScreen(audioGainManager: AudioGainManager) {
             maxSteps = audioGainManager.maxSteps
             perDeviceMemory = audioGainManager.perDeviceMemoryEnabled
             selectedCurve = audioGainManager.curveMode
+            lockscreenFineControl = audioGainManager.lockscreenFineControlEnabled
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose {
@@ -265,6 +270,45 @@ fun FineVolumeScreen(audioGainManager: AudioGainManager) {
                                 perDeviceMemory = checked
                                 audioGainManager.perDeviceMemoryEnabled = checked
                                 currentStep = audioGainManager.currentStep
+                            }
+                        )
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+
+                    // Lockscreen Fine Control Switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Lockscreen Fine Control",
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                "Keeps fine steps working while the screen is locked. If headphone Play/Pause or Skip stops responding, turn this off.",
+                                fontSize = 11.sp,
+                                color = Color.Gray
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = lockscreenFineControl,
+                            onCheckedChange = { checked ->
+                                lockscreenFineControl = checked
+                                audioGainManager.lockscreenFineControlEnabled = checked
+                                val intent = Intent(context, VolumeOverlayService::class.java).apply {
+                                    action = VolumeOverlayService.ACTION_REFRESH_LOCKSCREEN_MODE
+                                }
+                                try {
+                                    context.startService(intent)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
                             }
                         )
                     }

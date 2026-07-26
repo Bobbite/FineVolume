@@ -31,12 +31,17 @@ class VolumeAccessibilityService : AccessibilityService() {
 
     override fun onCreate() {
         super.onCreate()
-        audioGainManager = AudioGainManager(this)
+        audioGainManager = AudioGainManager.getInstance(this)
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         isServiceRunning = true
+        // Hold a foreground component from the moment the service connects.
+        // Previously this only happened on the first volume press, so a freshly
+        // booted device had nothing protecting the process when the screen
+        // went off.
+        VolumeOverlayService.ensureRunning(this)
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
@@ -102,7 +107,8 @@ class VolumeAccessibilityService : AccessibilityService() {
         super.onDestroy()
         stopRepeatHold()
         isServiceRunning = false
-        audioGainManager.release()
+        // audioGainManager is the shared process-wide instance; releasing it
+        // here would tear down the receivers the overlay service still needs.
     }
 
     companion object {

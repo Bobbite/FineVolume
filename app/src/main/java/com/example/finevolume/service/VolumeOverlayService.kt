@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.PixelFormat
 import android.media.AudioManager
 import android.os.Build
@@ -35,16 +36,43 @@ class VolumeOverlayService : Service() {
     private lateinit var audioGainManager: AudioGainManager
     private val handler = Handler(Looper.getMainLooper())
     private var audioTrack: android.media.AudioTrack? = null
+    private var lockscreenSession: LockscreenVolumeSession? = null
 
     private val hideRunnable = Runnable {
         hideOverlay()
     }
 
+    /**
+     * The accessibility service stops receiving keys once the device locks, so
+     * the lockscreen session is raised on screen-off and dropped again the
+     * moment the user is back in, keeping it out of the way while unlocked.
+     */
+    private val screenStateReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> lockscreenSession?.start()
+                Intent.ACTION_USER_PRESENT -> lockscreenSession?.stop()
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
-        audioGainManager = AudioGainManager(this)
+        audioGainManager = AudioGainManager.getInstance(this)
         startForegroundServiceNotification()
         startSilentAudioSession()
+
+        lockscreenSession = LockscreenVolumeSession(this, audioGainManager) { step ->
+            handler.post { showOrUpdateOverlay(step, audioGainManager.maxSteps) }
+        }
+
+        registerReceiver(
+            screenStateReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_USER_PRESENT)
+            }
+        )
     }
 
 
@@ -87,10 +115,19 @@ class VolumeOverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_SHOW_OVERLAY) {
-            val step = intent.getIntExtra(EXTRA_CURRENT_STEP, audioGainManager.currentStep)
-            val max = intent.getIntExtra(EXTRA_MAX_STEPS, audioGainManager.maxSteps)
-            showOrUpdateOverlay(step, max)
+        when (intent?.action) {
+            ACTION_SHOW_OVERLAY -> {
+                val step = intent.getIntExtra(EXTRA_CURRENT_STEP, audioGainManager.currentStep)
+                val max = intent.getIntExtra(EXTRA_MAX_STEPS, audioGainManager.maxSteps)
+                showOrUpdateOverlay(step, max)
+            }
+            // Sent on boot and whenever the accessibility service connects, so
+            // the process holds a foreground component before the screen ever
+            // goes off rather than only after the first volume press.
+            ACTION_KEEP_ALIVE -> Unit
+            ACTION_REFRESH_LOCKSCREEN_MODE -> {
+                if (!audioGainManager.lockscreenFineControlEnabled) lockscreenSession?.stop()
+            }
         }
         return START_STICKY
     }
@@ -153,7 +190,10 @@ class VolumeOverlayService : Service() {
                     @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                        WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                        WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+                        // Without this the fine step bar is invisible on the
+                        // keyguard, leaving lockscreen presses unacknowledged.
+                        @Suppress("DEPRECATION") WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.CENTER_VERTICAL or Gravity.END
@@ -248,15 +288,42 @@ class VolumeOverlayService : Service() {
         } catch (e: Exception) {
             e.printStackTrace()
         }
-        audioGainManager.release()
+        lockscreenSession?.stop()
+        lockscreenSession = null
+        try {
+            unregisterReceiver(screenStateReceiver)
+        } catch (e: Exception) {
+            // Ignored if already unregistered
+        }
+        // audioGainManager is the shared process-wide instance and outlives
+        // this service, so it is deliberately not released here.
     }
 
     companion object {
         const val ACTION_SHOW_OVERLAY = "com.example.finevolume.ACTION_SHOW_OVERLAY"
+        const val ACTION_KEEP_ALIVE = "com.example.finevolume.ACTION_KEEP_ALIVE"
+        const val ACTION_REFRESH_LOCKSCREEN_MODE =
+            "com.example.finevolume.ACTION_REFRESH_LOCKSCREEN_MODE"
         const val EXTRA_CURRENT_STEP = "extra_current_step"
         const val EXTRA_MAX_STEPS = "extra_max_steps"
 
         private const val NOTIFICATION_ID = 1001
         private const val HIDE_DELAY_MS = 2500L
+
+        /** Starts the service in the foreground if it is not already running. */
+        fun ensureRunning(context: Context) {
+            val intent = Intent(context, VolumeOverlayService::class.java).apply {
+                action = ACTION_KEEP_ALIVE
+            }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 }
