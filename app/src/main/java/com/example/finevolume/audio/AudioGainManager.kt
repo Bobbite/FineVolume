@@ -21,7 +21,7 @@ enum class CurveMode {
     LINEAR          // Equal step distribution
 }
 
-class AudioGainManager(private val context: Context) {
+class AudioGainManager private constructor(private val context: Context) {
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences("fine_volume_prefs", Context.MODE_PRIVATE)
@@ -33,6 +33,19 @@ class AudioGainManager(private val context: Context) {
     private var lastSelfAppliedTime: Long = 0
     private var expectedSystemVolumeIndex: Int = -1
     private var lastDeviceKey: String = ""
+
+    /**
+     * Opt-in. When on, a MediaSession with a remote VolumeProvider is held
+     * while the keyguard is up so volume keys still reach us; MagicOS stops
+     * delivering them to the accessibility service once locked. Off by default
+     * because a session in the routing chain risks capturing headphone
+     * transport buttons.
+     */
+    var lockscreenFineControlEnabled: Boolean
+        get() = prefs.getBoolean(KEY_LOCKSCREEN_FINE_CONTROL, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_LOCKSCREEN_FINE_CONTROL, value).apply()
+        }
 
     var perDeviceMemoryEnabled: Boolean
         get() = prefs.getBoolean(KEY_PER_DEVICE_MEMORY, true)
@@ -70,7 +83,14 @@ class AudioGainManager(private val context: Context) {
                     if (streamType == AudioManager.STREAM_MUSIC) {
                         val newVol = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_VALUE", -1)
                         val maxSys = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                        if (newVol >= 0 && maxSys > 0) {
+
+                        // Our own setStreamVolume echoes back here. Without this
+                        // guard the echo is re-mapped onto the coarse hardware
+                        // grid, quantising away every fine step we just applied.
+                        val isSelfInflicted = newVol == expectedSystemVolumeIndex &&
+                                System.currentTimeMillis() - lastSelfAppliedTime < SELF_CHANGE_WINDOW_MS
+
+                        if (newVol >= 0 && maxSys > 0 && !isSelfInflicted) {
                             val ratio = newVol.toFloat() / maxSys.toFloat()
                             val mappedStep = (ratio * maxSteps).roundToInt().coerceIn(0, maxSteps)
                             setCurrentStepInternal(mappedStep, applyToSystem = false)
@@ -344,5 +364,25 @@ class AudioGainManager(private val context: Context) {
         private const val KEY_CURVE_MODE = "curve_mode"
         private const val KEY_CURRENT_STEP = "current_step"
         private const val KEY_PER_DEVICE_MEMORY = "per_device_memory"
+        private const val KEY_LOCKSCREEN_FINE_CONTROL = "lockscreen_fine_control"
+
+        // A volume change we caused ourselves echoes back through
+        // VOLUME_CHANGED_ACTION within a few ms; anything inside this window
+        // matching our expected index is ours, not a hardware key press.
+        private const val SELF_CHANGE_WINDOW_MS = 750L
+
+        @Volatile
+        private var instance: AudioGainManager? = null
+
+        /**
+         * Process-wide shared instance. Every component must use this: each
+         * separate instance would register its own VOLUME_CHANGED_ACTION
+         * receiver and attach its own LoudnessEnhancer to session 0, so
+         * duplicates cause multi-stepping and fighting DSP effects.
+         */
+        fun getInstance(context: Context): AudioGainManager =
+            instance ?: synchronized(this) {
+                instance ?: AudioGainManager(context.applicationContext).also { instance = it }
+            }
     }
 }
