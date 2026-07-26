@@ -2,6 +2,7 @@ package com.example.finevolume
 
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
@@ -81,6 +82,20 @@ fun FineVolumeScreen(audioGainManager: AudioGainManager) {
     
     var isAccessibilityEnabled by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
     var canDrawOverlays by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+
+    DisposableEffect(audioGainManager) {
+        val prefs = context.getSharedPreferences("fine_volume_prefs", Context.MODE_PRIVATE)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            currentStep = audioGainManager.currentStep
+            maxSteps = audioGainManager.maxSteps
+            perDeviceMemory = audioGainManager.perDeviceMemoryEnabled
+            selectedCurve = audioGainManager.curveMode
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
 
     var showCustomDialog by remember { mutableStateOf(false) }
     var customInputText by remember { mutableStateOf("") }
