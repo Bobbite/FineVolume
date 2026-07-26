@@ -101,9 +101,19 @@ class AudioGainManager(private val context: Context) {
         get() = prefs.getInt(KEY_MAX_STEPS, 100)
         set(value) {
             val clamped = value.coerceIn(10, 200)
-            prefs.edit().putInt(KEY_MAX_STEPS, clamped).apply()
+            val oldMax = maxSteps
             val oldStep = currentStep
-            val newStep = ((oldStep.toFloat() / maxSteps) * clamped).roundToInt()
+
+            prefs.edit().putInt(KEY_MAX_STEPS, clamped).apply()
+
+            val newStep = if (clamped < oldMax) {
+                // Default to half steps when switching to a lower step count
+                (clamped / 2).coerceIn(0, clamped)
+            } else {
+                // Proportionally scale step based on oldMax
+                ((oldStep.toFloat() / oldMax.coerceAtLeast(1)) * clamped).roundToInt().coerceIn(0, clamped)
+            }
+
             currentStep = newStep
         }
 

@@ -273,8 +273,8 @@ fun FineVolumeScreen(audioGainManager: AudioGainManager) {
                             FilterChip(
                                 selected = (maxSteps == stepOption),
                                 onClick = {
-                                    maxSteps = stepOption
                                     audioGainManager.maxSteps = stepOption
+                                    maxSteps = audioGainManager.maxSteps
                                     currentStep = audioGainManager.currentStep
                                 },
                                 label = {
@@ -420,8 +420,8 @@ fun FineVolumeScreen(audioGainManager: AudioGainManager) {
                         val inputInt = customInputText.toIntOrNull()
                         if (inputInt != null) {
                             val clamped = inputInt.coerceIn(10, 200)
-                            maxSteps = clamped
                             audioGainManager.maxSteps = clamped
+                            maxSteps = audioGainManager.maxSteps
                             currentStep = audioGainManager.currentStep
                         }
                         showCustomDialog = false
