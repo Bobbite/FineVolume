@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -606,21 +607,30 @@ fun PermissionsCard(
                 }
             )
 
-            // Step 3: Background Battery Guide
+            // Step 3: Unrestricted Battery Optimization (Lockscreen Fix)
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            val isIgnoringBattery = powerManager?.isIgnoringBatteryOptimizations(context.packageName) ?: false
+
             PermissionRow(
-                title = "3. Disable Battery Optimization",
-                subtitle = "Prevents system battery saver from stopping FineVolume in the background.",
-                isGranted = true,
-                buttonText = "Open Battery Settings",
+                title = "3. Unrestricted Background (Lockscreen Fix)",
+                subtitle = "Prevents MagicOS / Android from killing fine volume keys when locked.",
+                isGranted = isIgnoringBattery,
                 onButtonClick = {
                     try {
-                        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            data = Uri.parse("package:${context.packageName}")
+                        }
                         context.startActivity(intent)
                     } catch (e: Exception) {
-                        context.startActivity(Intent(Settings.ACTION_SETTINGS))
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.parse("package:${context.packageName}")
+                        }
+                        context.startActivity(intent)
                     }
                 }
             )
+
+
         }
     }
 }

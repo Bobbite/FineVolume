@@ -87,11 +87,8 @@ class AudioGainManager(private val context: Context) {
                     }
                 }
             } else if (action == Intent.ACTION_USER_PRESENT || action == Intent.ACTION_SCREEN_ON) {
-                // Seamlessly sync currentStep to native system volume upon unlock
-                val sysVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                val maxSys = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-                val syncedStep = ((sysVol.toFloat() / maxSys) * maxSteps).roundToInt().coerceIn(0, maxSteps)
-                setCurrentStepInternal(syncedStep, applyToSystem = false)
+                // Re-apply digital gain smoothly upon unlock without modifying currentStep
+                applyStepGain(currentStep)
             } else if (action == Intent.ACTION_HEADSET_PLUG ||
                 action == AudioManager.ACTION_AUDIO_BECOMING_NOISY ||
                 action == "android.bluetooth.device.action.ACL_CONNECTED" ||
