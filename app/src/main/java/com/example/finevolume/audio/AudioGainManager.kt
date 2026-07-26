@@ -31,6 +31,7 @@ class AudioGainManager(private val context: Context) {
 
     private var loudnessEnhancer: LoudnessEnhancer? = null
     private var lastSelfAppliedTime: Long = 0
+    private var expectedSystemVolumeIndex: Int = -1
     private var lastDeviceKey: String = ""
 
     var perDeviceMemoryEnabled: Boolean
@@ -71,14 +72,17 @@ class AudioGainManager(private val context: Context) {
 
                 val streamType = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", -1)
                 if (streamType == AudioManager.STREAM_MUSIC) {
-                    if (System.currentTimeMillis() - lastSelfAppliedTime < 800) {
-                        return
-                    }
-
                     val newVol = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_VALUE", -1)
                     val prevVol = intent.getIntExtra("android.media.EXTRA_PREV_VOLUME_STREAM_VALUE", -1)
 
                     if (newVol != -1 && prevVol != -1 && newVol != prevVol) {
+                        // Check if this change was triggered by our own setStreamVolume
+                        if (newVol == expectedSystemVolumeIndex && (System.currentTimeMillis() - lastSelfAppliedTime < 1000)) {
+                            // This is our own programmatic change being echoed back
+                            expectedSystemVolumeIndex = -1 // consume it
+                            return
+                        }
+
                         if (newVol > prevVol) {
                             stepUp()
                         } else if (newVol < prevVol) {
@@ -297,6 +301,7 @@ class AudioGainManager(private val context: Context) {
 
         try {
             if (updateSystemVolume) {
+                expectedSystemVolumeIndex = targetSystemIndex
                 lastSelfAppliedTime = System.currentTimeMillis()
                 audioManager.setStreamVolume(
                     AudioManager.STREAM_MUSIC,

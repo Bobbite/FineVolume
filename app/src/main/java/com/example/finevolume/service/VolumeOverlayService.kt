@@ -34,6 +34,7 @@ class VolumeOverlayService : Service() {
 
     private lateinit var audioGainManager: AudioGainManager
     private val handler = Handler(Looper.getMainLooper())
+    private var audioTrack: android.media.AudioTrack? = null
 
     private val hideRunnable = Runnable {
         hideOverlay()
@@ -43,6 +44,44 @@ class VolumeOverlayService : Service() {
         super.onCreate()
         audioGainManager = AudioGainManager(this)
         startForegroundServiceNotification()
+        startSilentAudioSession()
+    }
+
+    private fun startSilentAudioSession() {
+        try {
+            val sampleRate = 44100
+            val minBufferSize = android.media.AudioTrack.getMinBufferSize(
+                sampleRate,
+                android.media.AudioFormat.CHANNEL_OUT_MONO,
+                android.media.AudioFormat.ENCODING_PCM_16BIT
+            )
+            if (minBufferSize > 0) {
+                audioTrack = android.media.AudioTrack.Builder()
+                    .setAudioAttributes(
+                        android.media.AudioAttributes.Builder()
+                            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        android.media.AudioFormat.Builder()
+                            .setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(sampleRate)
+                            .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(minBufferSize)
+                    .setTransferMode(android.media.AudioTrack.MODE_STATIC)
+                    .build()
+
+                val silentBuffer = ByteArray(minBufferSize)
+                audioTrack?.write(silentBuffer, 0, silentBuffer.size)
+                audioTrack?.setLoopPoints(0, silentBuffer.size / 2, -1)
+                audioTrack?.play()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -200,6 +239,13 @@ class VolumeOverlayService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         hideOverlay()
+        try {
+            audioTrack?.stop()
+            audioTrack?.release()
+            audioTrack = null
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         audioGainManager.release()
     }
 
