@@ -40,11 +40,67 @@ class VolumeOverlayService : Service() {
         hideOverlay()
     }
 
+    private var mediaSession: android.media.session.MediaSession? = null
+    private var volumeProvider: android.media.VolumeProvider? = null
+
     override fun onCreate() {
         super.onCreate()
         audioGainManager = AudioGainManager(this)
         startForegroundServiceNotification()
         startSilentAudioSession()
+        initMediaSessionVolumeProvider()
+    }
+
+    private fun initMediaSessionVolumeProvider() {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                volumeProvider = object : android.media.VolumeProvider(
+                    VOLUME_CONTROL_RELATIVE,
+                    audioGainManager.maxSteps,
+                    audioGainManager.currentStep
+                ) {
+                    override fun onAdjustVolume(direction: Int) {
+                        if (direction > 0) {
+                            val newStep = audioGainManager.stepUp()
+                            notifyOverlayIfUnlocked(newStep)
+                        } else if (direction < 0) {
+                            val newStep = audioGainManager.stepDown()
+                            notifyOverlayIfUnlocked(newStep)
+                        }
+                    }
+
+                    override fun onSetVolumeTo(volume: Int) {
+                        audioGainManager.currentStep = volume
+                    }
+                }
+
+                mediaSession = android.media.session.MediaSession(this, "FineVolumeSession").apply {
+                    val state = android.media.session.PlaybackState.Builder()
+                        .setActions(0) // Do not declare ACTION_PLAY or ACTION_PAUSE
+                        .setState(android.media.session.PlaybackState.STATE_NONE, 0, 0f)
+                        .build()
+                    setPlaybackState(state)
+
+                    volumeProvider?.let { setPlaybackToRemote(it) }
+                    isActive = true
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun notifyOverlayIfUnlocked(currentStep: Int) {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+        val isLockedOrOff = (powerManager != null && !powerManager.isInteractive) ||
+                (keyguardManager != null && keyguardManager.isKeyguardLocked)
+
+        if (!isLockedOrOff) {
+            handler.post {
+                showOrUpdateOverlay(currentStep, audioGainManager.maxSteps)
+            }
+        }
     }
 
     private fun startSilentAudioSession() {
@@ -243,6 +299,13 @@ class VolumeOverlayService : Service() {
             audioTrack?.stop()
             audioTrack?.release()
             audioTrack = null
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            mediaSession?.isActive = false
+            mediaSession?.release()
+            mediaSession = null
         } catch (e: Exception) {
             e.printStackTrace()
         }
