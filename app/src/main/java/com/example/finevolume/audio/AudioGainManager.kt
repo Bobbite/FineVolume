@@ -64,8 +64,7 @@ class AudioGainManager(private val context: Context) {
                 val isDeviceLockedOrOff = (powerManager != null && !powerManager.isInteractive) ||
                         (keyguardManager != null && keyguardManager.isKeyguardLocked)
 
-                // Only handle VOLUME_CHANGED_ACTION when screen is locked or off (external headphone/lockscreen events)
-                // When unlocked, AccessibilityService handles hardware volume key presses exclusively!
+                // Only handle VOLUME_CHANGED_ACTION when screen is locked or off
                 if (!isDeviceLockedOrOff) {
                     return
                 }
@@ -87,6 +86,9 @@ class AudioGainManager(private val context: Context) {
                         }
                     }
                 }
+            } else if (action == Intent.ACTION_USER_PRESENT || action == Intent.ACTION_SCREEN_ON) {
+                // User unlocked screen -> sync gain smoothly
+                applyStepGain(currentStep)
             } else if (action == Intent.ACTION_HEADSET_PLUG ||
                 action == AudioManager.ACTION_AUDIO_BECOMING_NOISY ||
                 action == "android.bluetooth.device.action.ACL_CONNECTED" ||
@@ -107,10 +109,8 @@ class AudioGainManager(private val context: Context) {
             prefs.edit().putInt(KEY_MAX_STEPS, clamped).apply()
 
             val newStep = if (clamped < oldMax) {
-                // Default to half steps when switching to a lower step count
                 (clamped / 2).coerceIn(0, clamped)
             } else {
-                // Proportionally scale step based on oldMax
                 ((oldStep.toFloat() / oldMax.coerceAtLeast(1)) * clamped).roundToInt().coerceIn(0, clamped)
             }
 
@@ -155,6 +155,16 @@ class AudioGainManager(private val context: Context) {
     }
 
     fun getActiveDeviceKey(): String {
+        // While locked, preserve last known valid device key to prevent fallback to BUILTIN_SPEAKER
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        val isLocked = (powerManager != null && !powerManager.isInteractive) ||
+                (keyguardManager != null && keyguardManager.isKeyguardLocked)
+
+        if (isLocked && lastDeviceKey.isNotBlank()) {
+            return lastDeviceKey
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
             for (device in devices) {
@@ -164,27 +174,37 @@ class AudioGainManager(private val context: Context) {
                     AudioDeviceInfo.TYPE_BLE_HEADSET,
                     AudioDeviceInfo.TYPE_HEARING_AID -> {
                         val name = device.productName.toString().trim().takeIf { it.isNotBlank() } ?: "Bluetooth Device"
-                        return "BT_$name"
+                        val key = "BT_$name"
+                        lastDeviceKey = key
+                        return key
                     }
                     AudioDeviceInfo.TYPE_WIRED_HEADSET,
                     AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
                     AudioDeviceInfo.TYPE_USB_HEADSET,
                     AudioDeviceInfo.TYPE_USB_DEVICE -> {
-                        return "WIRED_HEADPHONES"
+                        val key = "WIRED_HEADPHONES"
+                        lastDeviceKey = key
+                        return key
                     }
                 }
             }
         } else {
             @Suppress("DEPRECATION")
             if (audioManager.isBluetoothA2dpOn || audioManager.isBluetoothScoOn) {
-                return "BT_Device"
+                val key = "BT_Device"
+                lastDeviceKey = key
+                return key
             }
             @Suppress("DEPRECATION")
             if (audioManager.isWiredHeadsetOn) {
-                return "WIRED_HEADPHONES"
+                val key = "WIRED_HEADPHONES"
+                lastDeviceKey = key
+                return key
             }
         }
-        return "BUILTIN_SPEAKER"
+        val key = "BUILTIN_SPEAKER"
+        lastDeviceKey = key
+        return key
     }
 
     fun getActiveDeviceDisplayName(): String {
@@ -233,6 +253,8 @@ class AudioGainManager(private val context: Context) {
         try {
             val filter = IntentFilter().apply {
                 addAction("android.media.VOLUME_CHANGED_ACTION")
+                addAction(Intent.ACTION_USER_PRESENT)
+                addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_HEADSET_PLUG)
                 addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
                 addAction("android.bluetooth.device.action.ACL_CONNECTED")
