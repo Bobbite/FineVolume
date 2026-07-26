@@ -60,12 +60,18 @@ class VolumeOverlayService : Service() {
                     audioGainManager.currentStep
                 ) {
                     override fun onAdjustVolume(direction: Int) {
+                        val stepsToChange = kotlin.math.abs(direction)
+                        var lastStep = audioGainManager.currentStep
                         if (direction > 0) {
-                            val newStep = audioGainManager.stepUp()
-                            notifyOverlayIfUnlocked(newStep)
+                            repeat(stepsToChange) {
+                                lastStep = audioGainManager.stepUp()
+                            }
+                            notifyOverlayIfUnlocked(lastStep)
                         } else if (direction < 0) {
-                            val newStep = audioGainManager.stepDown()
-                            notifyOverlayIfUnlocked(newStep)
+                            repeat(stepsToChange) {
+                                lastStep = audioGainManager.stepDown()
+                            }
+                            notifyOverlayIfUnlocked(lastStep)
                         }
                     }
 

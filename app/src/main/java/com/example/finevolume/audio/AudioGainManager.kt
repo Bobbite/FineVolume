@@ -58,39 +58,7 @@ class AudioGainManager(private val context: Context) {
     private val volumeChangeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val action = intent?.action ?: return
-            if (action == "android.media.VOLUME_CHANGED_ACTION") {
-                val powerManager = context?.getSystemService(Context.POWER_SERVICE) as? PowerManager
-                val keyguardManager = context?.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-
-                val isDeviceLockedOrOff = (powerManager != null && !powerManager.isInteractive) ||
-                        (keyguardManager != null && keyguardManager.isKeyguardLocked)
-
-                // Only process VOLUME_CHANGED_ACTION when screen is locked or off
-                if (!isDeviceLockedOrOff) {
-                    return
-                }
-
-                val streamType = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", -1)
-                if (streamType == AudioManager.STREAM_MUSIC) {
-                    val newVol = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_VALUE", -1)
-                    val prevVol = intent.getIntExtra("android.media.EXTRA_PREV_VOLUME_STREAM_VALUE", -1)
-
-                    if (newVol != -1 && prevVol != -1 && newVol != prevVol) {
-                        // Check if this change was triggered by our own setStreamVolume
-                        if (newVol == expectedSystemVolumeIndex && (System.currentTimeMillis() - lastSelfAppliedTime < 1000)) {
-                            // This is our own programmatic change being echoed back
-                            expectedSystemVolumeIndex = -1 // consume it
-                            return
-                        }
-
-                        if (newVol > prevVol) {
-                            stepUp()
-                        } else if (newVol < prevVol) {
-                            stepDown()
-                        }
-                    }
-                }
-            } else if (action == Intent.ACTION_USER_PRESENT || action == Intent.ACTION_SCREEN_ON) {
+            if (action == Intent.ACTION_USER_PRESENT || action == Intent.ACTION_SCREEN_ON) {
                 // Re-apply digital gain smoothly upon unlock without modifying currentStep
                 applyStepGain(currentStep)
             } else if (action == Intent.ACTION_HEADSET_PLUG ||
