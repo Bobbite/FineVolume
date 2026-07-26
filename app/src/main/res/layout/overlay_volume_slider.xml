@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_overlay_glass"
+    android:elevation="16dp"
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
+    android:paddingStart="4dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="4dp"
+    android:paddingBottom="8dp">
+
+    <!-- Volume Percentage Text -->
+    <TextView
+        android:id="@+id/textVolumePercent"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="30%"
+        android:textColor="#FFFFFF"
+        android:textSize="11sp"
+        android:textStyle="bold" />
+
+    <!-- Step Count Subtitle -->
+    <TextView
+        android:id="@+id/textStepCount"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="4dp"
+        android:text="15/30"
+        android:textColor="#B0BEC5"
+        android:textSize="9sp" />
+
+    <!-- Custom Vertical Volume Bar -->
+    <com.example.finevolume.ui.VerticalVolumeBar
+        android:id="@+id/verticalVolumeBar"
+        android:layout_width="28dp"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- Speaker Icon at bottom (Clickable to open System Volume Panel / Sound Settings) -->
+    <ImageView
+        android:id="@+id/imageVolumeIcon"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginTop="4dp"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:clickable="true"
+        android:contentDescription="Open Sound Settings"
+        android:focusable="true"
+        android:padding="2dp"
+        android:src="@android:drawable/ic_lock_silent_mode_off"
+        android:tint="#FFFFFF" />
+
+</LinearLayout>
