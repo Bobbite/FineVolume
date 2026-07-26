@@ -8,7 +8,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
+import android.media.AudioAttributes
+import android.media.AudioFormat
 import android.media.AudioManager
+import android.media.AudioTrack
 import android.media.VolumeProvider
 import android.media.session.MediaSession
 import android.os.Build
@@ -39,6 +42,7 @@ class VolumeOverlayService : Service() {
     private lateinit var audioGainManager: AudioGainManager
     private var mediaSession: MediaSession? = null
     private var volumeProvider: VolumeProvider? = null
+    private var audioTrack: AudioTrack? = null
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -51,6 +55,44 @@ class VolumeOverlayService : Service() {
         audioGainManager = AudioGainManager(this)
         startForegroundServiceNotification()
         initMediaSessionVolumeProvider()
+        startSilentAudioSession()
+    }
+
+    private fun startSilentAudioSession() {
+        try {
+            val sampleRate = 44100
+            val minBufferSize = AudioTrack.getMinBufferSize(
+                sampleRate,
+                AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            )
+            if (minBufferSize > 0) {
+                audioTrack = AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(sampleRate)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(minBufferSize)
+                    .setTransferMode(AudioTrack.MODE_STATIC)
+                    .build()
+
+                val silentBuffer = ByteArray(minBufferSize)
+                audioTrack?.write(silentBuffer, 0, silentBuffer.size)
+                audioTrack?.setLoopPoints(0, silentBuffer.size / 2, -1)
+                audioTrack?.play()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     private fun initMediaSessionVolumeProvider() {
@@ -255,6 +297,13 @@ class VolumeOverlayService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         hideOverlay()
+        try {
+            audioTrack?.stop()
+            audioTrack?.release()
+            audioTrack = null
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         try {
             mediaSession?.isActive = false
             mediaSession?.release()
