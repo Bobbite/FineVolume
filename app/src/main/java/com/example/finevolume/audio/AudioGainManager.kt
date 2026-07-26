@@ -110,9 +110,9 @@ class AudioGainManager(private val context: Context) {
 
     var curveMode: CurveMode
         get() = try {
-            CurveMode.valueOf(prefs.getString(KEY_CURVE_MODE, CurveMode.LOW_RANGE_FINE.name)!!)
+            CurveMode.valueOf(prefs.getString(KEY_CURVE_MODE, CurveMode.LINEAR.name)!!)
         } catch (e: Exception) {
-            CurveMode.LOW_RANGE_FINE
+            CurveMode.LINEAR
         }
         set(value) {
             prefs.edit().putString(KEY_CURVE_MODE, value.name).apply()
